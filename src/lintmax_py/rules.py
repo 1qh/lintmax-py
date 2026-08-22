@@ -17,7 +17,7 @@ def inventory() -> list[dict[str, object]]:
     if not isinstance(parsed, list) or not parsed:
         msg = "ruff reported an empty rule set"
         raise RuntimeError(msg)
-    return parsed
+    return [dict(entry) for entry in parsed if isinstance(entry, dict)]
 
 
 def preview_codes(rules: list[dict[str, object]]) -> list[str]:
