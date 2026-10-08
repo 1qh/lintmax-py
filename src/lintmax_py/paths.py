@@ -64,7 +64,18 @@ def is_generated(path: Path, root: Path, patterns: list[str]) -> bool:
 
 
 def generated_regex(patterns: list[str]) -> str:
-    return "|".join(f"(?:{fnmatch.translate(pat)[:-2]}(?:/.*)?)" for pat in patterns) or re.escape("")
+    """Translate declared globs into a regex deptry's Rust engine accepts.
+
+    `fnmatch.translate` wraps each `*` run in an atomic group `(?>...)`, a backtracking guard the Rust
+    `regex` crate rejects with "unrecognized flag", which panics deptry. An atomic group never changes
+    which strings fully match, only how fast, so a plain group is equivalent here.
+
+    Returns:
+        One alternation matching each declared path and everything beneath it.
+
+    """
+    parts = [fnmatch.translate(pat)[:-2].replace("(?>", "(?:") for pat in patterns]
+    return "|".join(f"(?:{part}(?:/.*)?)" for part in parts) or re.escape("")
 
 
 def carried(root: Path) -> set[Path] | None:

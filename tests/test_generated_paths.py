@@ -74,6 +74,22 @@ def test_formatter_and_linter_configs_exclude_generated_paths(tmp_path: Path, mo
     assert str(tmp_path / "data" / "**") in config.dprint_json(tmp_path)
 
 
+def test_the_regex_carries_no_construct_deptry_rejects() -> None:
+    pattern = generated_regex(["**/*.jsonl", "synth/out*", "asr-local/data"])
+    assert "(?>" not in pattern
+    assert re.fullmatch(pattern, "synth/out/m001/hyp/vi70k_ts.jsonl")
+    assert re.fullmatch(pattern, "asr-local/data/brics222/audio.wav")
+    assert not re.fullmatch(pattern, "spike/asr/score.py")
+
+
+def test_deptry_accepts_the_regex(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0"\ndependencies = []\n', encoding="utf-8")
+    (tmp_path / "x.py").write_text("import json\n", encoding="utf-8")
+    result = run(["deptry", ".", "--extend-exclude", generated_regex(["**/*.jsonl", "out*"])], cwd=str(tmp_path))
+    assert result.code != 127, result.out
+    assert "panicked" not in result.out
+
+
 def test_the_regex_matches_a_directory_and_its_contents() -> None:
     pattern = generated_regex(["synth/out*"])
     assert re.fullmatch(pattern, "synth/out_cafe/m001/audio.json")
