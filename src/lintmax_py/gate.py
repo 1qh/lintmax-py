@@ -52,7 +52,12 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     else:
         found += _stage("ruff format", run(["ruff", "format", "--check", *ruff_common, str(root)]))
         found += _stage("ruff check", run(["ruff", "check", *ruff_common, str(root)]))
-    found += _stage("ty", run(["ty", "check", "--error", "all", *_environment(root), str(root)]))
+    nested = nested_projects(root)
+    excludes = [arg for sub in nested for arg in ("--exclude", f"{sub.relative_to(root).as_posix()}/")]
+    found += _stage("ty", run(["ty", "check", "--error", "all", *_environment(root), *excludes, str(root)]))
+    for sub in nested:
+        label = f"ty {sub.relative_to(root).as_posix()}"
+        found += _stage(label, run(["ty", "check", "--error", "all", *_environment(sub), str(sub)]))
     excluded = ",".join(f"*/{name}/*" for name in sorted(SKIP_DIRS))
     allowances = config.vulture_allowances(root)
     vulture_args = ["vulture", "--exclude", excluded]
@@ -60,6 +65,27 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
         vulture_args += [f"--{key.replace('_', '-')}", ",".join(values)]
     found += _stage("vulture", run([*vulture_args, str(root)]))
     return found
+
+
+def nested_projects(root: Path) -> list[Path]:
+    """Every directory below the root that declares its own project, and so its own environment.
+
+    A repository can hold a component whose dependencies cannot share the root environment — a
+    pinned interpreter, a conflicting framework major. Type-checking it against the ROOT environment
+    reports every one of its imports as unresolvable, which is a finding about the invocation rather
+    than the code. A directory carrying its own `pyproject.toml` is checked against its own `.venv`
+    and excluded from the root run, so each file is judged exactly once, against the environment
+    it actually runs in.
+
+    Returns:
+        The nested project directories, outermost first.
+
+    """
+    return sorted(
+        manifest.parent
+        for manifest in root.rglob("pyproject.toml")
+        if manifest.parent != root and not skipped(manifest.parent.relative_to(root))
+    )
 
 
 def _environment(root: Path) -> list[str]:
@@ -105,6 +131,11 @@ def _deptry_args(root: Path) -> list[str]:
     return args
 
 
+def _nested_excludes(root: Path) -> list[str]:
+    nested = [sub.relative_to(root).as_posix() for sub in nested_projects(root)]
+    return ["--extend-exclude", "|".join(f"{name}/" for name in nested)] if nested else []
+
+
 def _groups(root: Path, *path: str) -> list[str]:
     """Names of the dependency groups at the given manifest path.
 
@@ -142,8 +173,11 @@ def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
         shfmt = ["shfmt", "-w" if fix else "-d", *SHFMT_FLAGS, *scripts]
         found += _stage("shfmt", run(shfmt))
         found += _stage("shellcheck", run(["shellcheck", *SHELLCHECK_FLAGS, *scripts]))
+    for sub in nested_projects(root):
+        label = f"deptry {sub.relative_to(root).as_posix()}"
+        found += _stage(label, run(["deptry", *_deptry_args(sub)], cwd=str(sub)))
     if (root / "pyproject.toml").is_file():
-        found += _stage("deptry", run(["deptry", *_deptry_args(root)], cwd=str(root)))
+        found += _stage("deptry", run(["deptry", *_deptry_args(root), *_nested_excludes(root)], cwd=str(root)))
         found += _stage("pip-audit", run(["pip-audit", "--progress-spinner", "off"], cwd=str(root)))
     return found
 

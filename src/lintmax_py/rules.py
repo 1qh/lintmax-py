@@ -20,8 +20,23 @@ def inventory() -> list[dict[str, object]]:
     return [dict(entry) for entry in parsed if isinstance(entry, dict)]
 
 
+def selector(rule: dict[str, object]) -> str:
+    """Return the token that selects a rule: its code, or its name when ruff ships it without one.
+
+    Newer ruff ships rules that carry no code at all and are selectable only by name. Reading the
+    code alone turns each of them into the literal string `None`, which selects nothing, so the rule
+    is silently never run while the generated config looks complete.
+
+    Returns:
+        The rule's code, or its name when it has no code.
+
+    """
+    code = rule.get("code")
+    return str(code) if code else str(rule["name"])
+
+
 def preview_codes(rules: list[dict[str, object]]) -> list[str]:
-    return sorted(str(r["code"]) for r in rules if r.get("preview"))
+    return sorted(selector(r) for r in rules if r.get("preview"))
 
 
 def selection(rules: list[dict[str, object]]) -> list[str]:

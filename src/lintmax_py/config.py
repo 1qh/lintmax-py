@@ -103,21 +103,39 @@ def copyright_notice(root: Path) -> str:
     return ""
 
 
+def toml_array(key: str, items: list[str]) -> str:
+    """Emit a TOML array assignment in exactly the shape the formatter leaves it.
+
+    The gate's own formatter also reads the config the gate writes, so an array the formatter would
+    re-wrap is a finding about the gate rather than the project. An assignment that fits the line
+    width stays on one line; a longer one goes one item per line with a trailing comma.
+
+    Returns:
+        The assignment line or block, ending in a newline.
+
+    """
+    inline = f"{key} = {json.dumps(items, ensure_ascii=False)}"
+    if len(inline) <= LINE_LENGTH:
+        return inline + "\n"
+    body = "".join(f"  {json.dumps(item, ensure_ascii=False)},\n" for item in items)
+    return f"{key} = [\n{body}]\n"
+
+
 def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
-    select = json.dumps(rules.selection(inventory))
-    ignore = json.dumps(rules.ignored())
+    select = rules.selection(inventory)
+    ignore = rules.ignored()
     allowed = confusables(root)
-    allowed_line = f"allowed-confusables = {json.dumps(allowed, ensure_ascii=False)}\n" if allowed else ""
+    allowed_line = toml_array("allowed-confusables", allowed) if allowed else ""
     notice = copyright_notice(root)
     if not notice:
-        ignore = json.dumps([*json.loads(ignore), COPYRIGHT_RULE])
+        ignore = [*ignore, COPYRIGHT_RULE]
     return (
         "preview = true\n"
         f"line-length = {LINE_LENGTH}\n"
-        f"exclude = {json.dumps(EXCLUDES)}\n"
+        f"{toml_array('exclude', EXCLUDES)}"
         "[lint]\n"
-        f"select = {select}\n"
-        f"ignore = {ignore}\n"
+        f"{toml_array('select', select)}"
+        f"{toml_array('ignore', ignore)}"
         f"{allowed_line}"
         f"[lint.per-file-ignores]\n{_test_scoping()}"
         "[lint.flake8-quotes]\n"
@@ -130,17 +148,20 @@ def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
 
 
 def dprint_json() -> str:
-    return json.dumps(
-        {
-            "lineWidth": LINE_LENGTH,
-            "indentWidth": 2,
-            "useTabs": False,
-            "newLineKind": "lf",
-            "includes": ["**/*"],
-            "excludes": EXCLUDES,
-            "plugins": bump(DPRINT_SEED),
-        },
-        indent=2,
+    return (
+        json.dumps(
+            {
+                "lineWidth": LINE_LENGTH,
+                "indentWidth": 2,
+                "useTabs": False,
+                "newLineKind": "lf",
+                "includes": ["**/*"],
+                "excludes": EXCLUDES,
+                "plugins": bump(DPRINT_SEED),
+            },
+            indent=2,
+        )
+        + "\n"
     )
 
 

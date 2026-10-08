@@ -49,6 +49,10 @@ Prints `ok` on a single line on success, exit 0 = clean. Tool output is shown on
 | shell           | shellcheck, shfmt                  | every shell script, every optional check on                     |
 | other files     | dprint                             | toml, json, markdown, yaml, dockerfile, css, html               |
 
+## Nested projects
+
+A directory below the root that carries its own `pyproject.toml` is a separate project: a component pinned to another interpreter, or to a framework major the root cannot share. The type checker and the dependency checker judge it against its own `.venv` and its own manifest, and the root run excludes it, so every file is checked once, against the environment it actually runs in. Nothing else changes: every other stage still covers the whole tree.
+
 ## Strictness policy
 
 - The ruff rule set is derived from `ruff rule --all`, so a newly shipped rule is enabled the run after it lands. `ALL` alone is not enough: preview rules require their exact code.

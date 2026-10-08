@@ -92,7 +92,7 @@ def bump(plugins: list[str], *, force: bool = False) -> list[str]:
     out: list[str] = []
     for pinned in plugins:
         path = plugin_path(pinned)
-        latest = latest_url(path) if path else None
-        out.append(latest or pinned)
+        latest = latest_url(path) if path is not None else None
+        out.append(latest if latest is not None else pinned)
     _store(plugins, out)
     return out
