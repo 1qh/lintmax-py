@@ -1,6 +1,7 @@
 # Copyright (c) lintmax-py contributors. Licensed under the MIT License.
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -172,6 +173,28 @@ def _groups(root: Path, *path: str) -> list[str]:
     return sorted(node) if isinstance(node, dict) else []
 
 
+def _deptry_env(root: Path) -> dict[str, str] | None:
+    """Show deptry the TARGET project's installed packages, as its documentation requires.
+
+    deptry maps a distribution to the modules it provides by reading installed metadata, and "should
+    be run within the virtual environment of the project to be scanned". Run from the gate's own
+    environment it sees none of the project's packages, guesses `pyannote-audio` provides
+    `pyannote_audio`, and reports every namespace-package import as undeclared. Putting the
+    project's site-packages on the path lets it read the real metadata without installing anything
+    into the project.
+
+    Returns:
+        The environment to run deptry in, or None when the project has no environment of its own.
+
+    """
+    found = sorted((root / ".venv" / "lib").glob("python*/site-packages"))
+    if not found:
+        return None
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(str(p) for p in found)
+    return env
+
+
 def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     found: list[Finding] = []
     dprint_args = ["dprint", "fmt" if fix else "check", "--config", str(cfg / "dprint.json"), str(root)]
@@ -187,9 +210,10 @@ def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
         found += _stage("shellcheck", run(["shellcheck", *SHELLCHECK_FLAGS, *scripts]))
     for sub in nested_projects(root):
         label = f"deptry {sub.relative_to(root).as_posix()}"
-        found += _stage(label, run(["deptry", *_deptry_args(sub)], cwd=str(sub)))
+        found += _stage(label, run(["deptry", *_deptry_args(sub)], cwd=str(sub), env=_deptry_env(sub)))
     if (root / "pyproject.toml").is_file():
-        found += _stage("deptry", run(["deptry", *_deptry_args(root), *_nested_excludes(root)], cwd=str(root)))
+        deptry = ["deptry", *_deptry_args(root), *_nested_excludes(root)]
+        found += _stage("deptry", run(deptry, cwd=str(root), env=_deptry_env(root)))
         found += _stage("pip-audit", run(["pip-audit", "--progress-spinner", "off"], cwd=str(root)))
     return found
 

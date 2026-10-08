@@ -12,13 +12,14 @@ class Result:
     out: str
 
 
-def run(argv: list[str], cwd: str | None = None, timeout: int = 1800) -> Result:
+def run(argv: list[str], cwd: str | None = None, timeout: int = 1800, env: dict[str, str] | None = None) -> Result:
     if shutil.which(argv[0]) is None:
         return Result(code=127, out=f"{argv[0]}: not installed")
     try:
         done = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
             argv,
             cwd=cwd,
+            env=env,
             capture_output=True,
             text=True,
             timeout=timeout,
