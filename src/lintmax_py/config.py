@@ -1,6 +1,7 @@
 # Copyright (c) lintmax-py contributors. Licensed under the MIT License.
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import tempfile
@@ -253,6 +254,35 @@ def materialize(inventory: list[dict[str, object]], root: Path) -> tuple[Path, s
 
 
 VULTURE_KEYS = ("ignore_decorators", "ignore_names")
+
+
+def typed_dict_fields(files: list[Path]) -> list[str]:
+    """Name every field a TypedDict declares in these files.
+
+    A TypedDict field is a dictionary key: code reads it as `row["field"]`, a string subscript no
+    static reachability scan follows, so vulture reports every field as an unused variable. The set is
+    derived from the source on every run, so a new field never needs a hand-kept allowance.
+
+    Returns:
+        The field names, sorted.
+
+    """
+    names: set[str] = set()
+    for path in files:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ClassDef) and any(_is_typed_dict(base) for base in node.bases):
+                names.update(
+                    item.target.id
+                    for item in node.body
+                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+                )
+    return sorted(names)
+
+
+def _is_typed_dict(base: ast.expr) -> bool:
+    return (isinstance(base, ast.Name) and base.id == "TypedDict") or (
+        isinstance(base, ast.Attribute) and base.attr == "TypedDict"
+    )
 
 
 def vulture_allowances(root: Path) -> dict[str, list[str]]:
