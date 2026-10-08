@@ -14,6 +14,13 @@ from .paths import GLOB_EXCLUDES, generated
 
 LINE_LENGTH = 123
 
+DELETING_FIXES = ("T201", "T203")
+"""Rules whose autofix DELETES the flagged statement, which in a command-line program is its output.
+
+The finding stays an error; only the automatic deletion is withheld, so the author replaces the call
+with the program's real output channel instead of a fixer silently removing what the program says.
+"""
+
 DPRINT_SEED = [
     "https://plugins.dprint.dev/json-0.23.0.wasm",
     "https://plugins.dprint.dev/markdown-0.22.1.wasm",
@@ -137,6 +144,7 @@ def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
         f"{toml_array('select', select)}"
         f"{toml_array('ignore', ignore)}"
         f"{allowed_line}"
+        f"{toml_array('unfixable', list(DELETING_FIXES))}"
         f"[lint.per-file-ignores]\n{_test_scoping()}"
         "[lint.flake8-quotes]\n"
         'inline-quotes = "double"\n'

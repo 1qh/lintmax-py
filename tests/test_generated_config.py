@@ -39,3 +39,9 @@ def test_a_short_array_stays_on_one_line() -> None:
 def test_the_generated_json_ends_in_a_newline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "bump", list)
     assert config.dprint_json(tmp_path).endswith("}\n")
+
+
+def test_a_fix_that_deletes_program_output_is_never_applied(tmp_path: Path) -> None:
+    parsed = tomllib.loads(config.ruff_toml([], tmp_path))
+    assert {"T201", "T203"} <= set(parsed["lint"]["unfixable"])
+    assert "T201" not in parsed["lint"]["ignore"]
