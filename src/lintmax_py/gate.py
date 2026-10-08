@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import tomllib
 
 from . import comments, config, rules, staleness, tools
-from .paths import SKIP_DIRS, generated, generated_regex, is_generated, skipped
+from .paths import SKIP_DIRS, generated, generated_regex, skipped, sources
 from .proc import Result, have, run
 
 DEV_EXTRA_NAMES = frozenset({"dev", "development", "docs", "lint", "test", "testing", "tests", "typing"})
@@ -67,7 +67,9 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     vulture_args = ["vulture", "--exclude", excluded]
     for key, values in sorted(allowances.items()):
         vulture_args += [f"--{key.replace('_', '-')}", ",".join(values)]
-    found += _stage("vulture", run([*vulture_args, str(root)]))
+    python_files = [str(p) for p in sources(root)]
+    if python_files:
+        found += _stage("vulture", run([*vulture_args, *python_files]))
     return found
 
 
@@ -174,11 +176,7 @@ def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     typos_excludes = [arg for pat in declared for arg in ("--exclude", f"/{pat}")]
     typos_args = ["typos", "--config", str(cfg / "typos.toml"), *typos_excludes, "."]
     found += _stage("typos", run(typos_args, cwd=str(root)))
-    scripts = [
-        str(p)
-        for p in sorted(root.rglob("*.sh"))
-        if not any(part in {".venv", ".git", "node_modules"} for part in p.parts) and not is_generated(p, root, declared)
-    ]
+    scripts = [str(p) for p in sources(root, "*.sh")]
     if scripts:
         shfmt = ["shfmt", "-w" if fix else "-d", *SHFMT_FLAGS, *scripts]
         found += _stage("shfmt", run(shfmt))

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import tomllib
 
+from .proc import run
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -65,6 +67,28 @@ def generated_regex(patterns: list[str]) -> str:
     return "|".join(f"(?:{fnmatch.translate(pat)[:-2]}(?:/.*)?)" for pat in patterns) or re.escape("")
 
 
+def carried(root: Path) -> set[Path] | None:
+    """Ask version control which files the repository carries: tracked, or untracked and not ignored.
+
+    A filesystem walk also reaches files the project deliberately keeps out of version control — a
+    synced rules mirror, a local scratch file, a downloaded tool — and judges them as if the project
+    had written them. Outside a git checkout there is no such record, so every file counts.
+
+    Returns:
+        The absolute paths version control reports, or nothing when the root is not a git checkout.
+
+    """
+    res = run(["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+    if res.code != 0:
+        return None
+    return {(root / name).resolve() for name in res.out.split("\0") if name}
+
+
 def sources(root: Path, pattern: str = "*.py") -> list[Path]:
     declared = generated(root)
-    return [p for p in sorted(root.rglob(pattern)) if not skipped(p) and not is_generated(p, root, declared)]
+    known = carried(root)
+    return [
+        p
+        for p in sorted(root.rglob(pattern))
+        if not skipped(p) and not is_generated(p, root, declared) and (known is None or p.resolve() in known)
+    ]

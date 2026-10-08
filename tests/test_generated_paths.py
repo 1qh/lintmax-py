@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 import tomllib
 
 from lintmax_py import comments, config, gate
-from lintmax_py.paths import generated, generated_regex
-from lintmax_py.proc import Result
+from lintmax_py.paths import generated, generated_regex, sources
+from lintmax_py.proc import Result, run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -78,3 +78,17 @@ def test_the_regex_matches_a_directory_and_its_contents() -> None:
     pattern = generated_regex(["synth/out*"])
     assert re.fullmatch(pattern, "synth/out_cafe/m001/audio.json")
     assert not re.fullmatch(pattern, "synth/minutes.py")
+
+
+def test_files_version_control_ignores_are_never_judged(tmp_path: Path) -> None:
+    assert run(["git", "-C", str(tmp_path), "init", "-q"]).code == 0
+    (tmp_path / ".gitignore").write_text("mirror/\n", encoding="utf-8")
+    (tmp_path / "mirror").mkdir()
+    (tmp_path / "mirror" / "synced.sh").write_text("echo hi\n", encoding="utf-8")
+    (tmp_path / "mine.sh").write_text("echo hi\n", encoding="utf-8")
+    assert sources(tmp_path, "*.sh") == [tmp_path / "mine.sh"]
+
+
+def test_outside_version_control_every_file_counts(tmp_path: Path) -> None:
+    (tmp_path / "a.sh").write_text("echo hi\n", encoding="utf-8")
+    assert sources(tmp_path, "*.sh") == [tmp_path / "a.sh"]
