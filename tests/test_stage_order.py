@@ -39,3 +39,23 @@ def test_the_formatter_runs_before_the_checker_it_can_invalidate(
     assert "shfmt" in calls
     assert "shellcheck" in calls
     assert calls.index("shfmt") < calls.index("shellcheck")
+
+
+def test_fix_formats_again_after_the_autofix_that_can_unformat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An autofix such as a trailing comma leaves a file the formatter would rewrite.
+
+    Without a format pass after it, `fix` reports clean and the next `check` refuses the same tree.
+    """
+    calls: list[list[str]] = []
+
+    def fake(cmd: list[str], **_kwargs: object) -> Result:
+        calls.append(cmd)
+        return Result(code=0, out="")
+
+    monkeypatch.setattr(gate, "run", fake)
+    gate._python_stages(tmp_path, tmp_path, fix=True)
+    ruff = [c[1] for c in calls if c[0] == "ruff"]
+    assert ruff.index("check") < len(ruff) - 1 - ruff[::-1].index("format")

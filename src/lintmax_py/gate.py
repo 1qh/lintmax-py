@@ -50,6 +50,7 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
             "ruff check",
             run(["ruff", "check", "--fix", "--unsafe-fixes", *ruff_common, str(root)]),
         )
+        found += _stage("ruff format", run(["ruff", "format", *ruff_common, str(root)]))
     else:
         found += _stage("ruff format", run(["ruff", "format", "--check", *ruff_common, str(root)]))
         found += _stage("ruff check", run(["ruff", "check", *ruff_common, str(root)]))
