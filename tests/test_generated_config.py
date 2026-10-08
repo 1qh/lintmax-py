@@ -36,6 +36,6 @@ def test_a_short_array_stays_on_one_line() -> None:
     assert config.toml_array("k", ["a", "b"]) == 'k = ["a", "b"]\n'
 
 
-def test_the_generated_json_ends_in_a_newline(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_generated_json_ends_in_a_newline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "bump", list)
-    assert config.dprint_json().endswith("}\n")
+    assert config.dprint_json(tmp_path).endswith("}\n")

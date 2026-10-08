@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import tomllib
 
 from . import comments, config, rules, staleness, tools
-from .paths import SKIP_DIRS, skipped
+from .paths import SKIP_DIRS, generated, generated_regex, is_generated, skipped
 from .proc import Result, have, run
 
 DEV_EXTRA_NAMES = frozenset({"dev", "development", "docs", "lint", "test", "testing", "tests", "typing"})
@@ -54,11 +54,15 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
         found += _stage("ruff check", run(["ruff", "check", *ruff_common, str(root)]))
     nested = nested_projects(root)
     excludes = [arg for sub in nested for arg in ("--exclude", f"{sub.relative_to(root).as_posix()}/")]
+    excludes += [arg for pat in generated(root) for arg in ("--exclude", f"{pat}/", "--exclude", pat)]
     found += _stage("ty", run(["ty", "check", "--error", "all", *_environment(root), *excludes, str(root)]))
     for sub in nested:
         label = f"ty {sub.relative_to(root).as_posix()}"
         found += _stage(label, run(["ty", "check", "--error", "all", *_environment(sub), str(sub)]))
-    excluded = ",".join(f"*/{name}/*" for name in sorted(SKIP_DIRS))
+    excluded = ",".join([
+        *(f"*/{name}/*" for name in sorted(SKIP_DIRS)),
+        *(glob for pat in generated(root) for glob in (str(root / pat), str(root / pat / "*"))),
+    ])
     allowances = config.vulture_allowances(root)
     vulture_args = ["vulture", "--exclude", excluded]
     for key, values in sorted(allowances.items()):
@@ -132,8 +136,11 @@ def _deptry_args(root: Path) -> list[str]:
 
 
 def _nested_excludes(root: Path) -> list[str]:
-    nested = [sub.relative_to(root).as_posix() for sub in nested_projects(root)]
-    return ["--extend-exclude", "|".join(f"{name}/" for name in nested)] if nested else []
+    patterns = [f"{sub.relative_to(root).as_posix()}/" for sub in nested_projects(root)]
+    declared = generated(root)
+    if declared:
+        patterns.append(generated_regex(declared))
+    return ["--extend-exclude", "|".join(patterns)] if patterns else []
 
 
 def _groups(root: Path, *path: str) -> list[str]:
@@ -161,13 +168,16 @@ def _groups(root: Path, *path: str) -> list[str]:
 
 def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     found: list[Finding] = []
-    dprint_args = ["dprint", "fmt" if fix else "check", "--config", str(cfg / "dprint.json")]
+    dprint_args = ["dprint", "fmt" if fix else "check", "--config", str(cfg / "dprint.json"), str(root)]
     found += _stage("dprint", run(dprint_args, cwd=str(root)))
-    found += _stage("typos", run(["typos", "--config", str(cfg / "typos.toml"), str(root)]))
+    declared = generated(root)
+    typos_excludes = [arg for pat in declared for arg in ("--exclude", f"/{pat}")]
+    typos_args = ["typos", "--config", str(cfg / "typos.toml"), *typos_excludes, "."]
+    found += _stage("typos", run(typos_args, cwd=str(root)))
     scripts = [
         str(p)
         for p in sorted(root.rglob("*.sh"))
-        if not any(part in {".venv", ".git", "node_modules"} for part in p.parts)
+        if not any(part in {".venv", ".git", "node_modules"} for part in p.parts) and not is_generated(p, root, declared)
     ]
     if scripts:
         shfmt = ["shfmt", "-w" if fix else "-d", *SHFMT_FLAGS, *scripts]

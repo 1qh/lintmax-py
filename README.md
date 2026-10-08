@@ -49,6 +49,16 @@ Prints `ok` on a single line on success, exit 0 = clean. Tool output is shown on
 | shell           | shellcheck, shfmt                  | every shell script, every optional check on                     |
 | other files     | dprint                             | toml, json, markdown, yaml, dockerfile, css, html               |
 
+## Generated output
+
+Files a program writes — experiment results, recorded transcripts, rendered reports — are output rather than authored code, and judging them reports the program's output as defects: the spell checker reads every non-English transcript line as a misspelling. A project names those paths in its own manifest, and every stage skips exactly them; every authored file stays fully judged.
+
+```toml
+# pyproject.toml
+[tool.lintmax-py]
+generated = ["results/", "data/recordings"]
+```
+
 ## Nested projects
 
 A directory below the root that carries its own `pyproject.toml` is a separate project: a component pinned to another interpreter, or to a framework major the root cannot share. The type checker and the dependency checker judge it against its own `.venv` and its own manifest, and the root run excludes it, so every file is checked once, against the environment it actually runs in. Nothing else changes: every other stage still covers the whole tree.

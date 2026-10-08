@@ -10,7 +10,7 @@ import tomllib
 
 from . import rules
 from .dprint import bump
-from .paths import GLOB_EXCLUDES
+from .paths import GLOB_EXCLUDES, generated
 
 LINE_LENGTH = 123
 
@@ -132,7 +132,7 @@ def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
     return (
         "preview = true\n"
         f"line-length = {LINE_LENGTH}\n"
-        f"{toml_array('exclude', EXCLUDES)}"
+        f"{toml_array('exclude', [*EXCLUDES, *_absolute(root)])}"
         "[lint]\n"
         f"{toml_array('select', select)}"
         f"{toml_array('ignore', ignore)}"
@@ -147,7 +147,17 @@ def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
     )
 
 
-def dprint_json() -> str:
+def _absolute(root: Path) -> list[str]:
+    """Anchor declared generated paths to the project, since the generated config lives elsewhere.
+
+    Returns:
+        Each declared pattern as an absolute glob, plus its contents.
+
+    """
+    return [glob for pat in generated(root) for glob in (str(root / pat), str(root / pat / "**"))]
+
+
+def dprint_json(root: Path) -> str:
     return (
         json.dumps(
             {
@@ -156,7 +166,7 @@ def dprint_json() -> str:
                 "useTabs": False,
                 "newLineKind": "lf",
                 "includes": ["**/*"],
-                "excludes": EXCLUDES,
+                "excludes": [*EXCLUDES, *_absolute(root)],
                 "plugins": bump(DPRINT_SEED),
             },
             indent=2,
@@ -225,7 +235,7 @@ def materialize(inventory: list[dict[str, object]], root: Path) -> tuple[Path, s
     cfg_root = Path(tempfile.mkdtemp(prefix="lintmax-py-"))
     written = {
         "ruff.toml": ruff_toml(inventory, root),
-        "dprint.json": dprint_json(),
+        "dprint.json": dprint_json(root),
         "typos.toml": typos_toml(root),
     }
     for name, body in written.items():
