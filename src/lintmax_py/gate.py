@@ -60,7 +60,10 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     found += _stage("ty", run(["ty", "check", "--error", "all", *_environment(root), *excludes, str(root)]))
     for sub in nested:
         label = f"ty {sub.relative_to(root).as_posix()}"
-        found += _stage(label, run(["ty", "check", "--error", "all", *_environment(sub), str(sub)]))
+        found += _stage(
+            label,
+            run(["ty", "check", "--error", "all", "--project", str(sub), *_environment(sub), str(sub)]),
+        )
     excluded = ",".join([
         *(f"*/{name}/*" for name in sorted(SKIP_DIRS)),
         *(glob for pat in generated(root) for glob in (str(root / pat), str(root / pat / "*"))),

@@ -48,6 +48,9 @@ def test_a_nested_project_is_type_checked_against_its_own_environment(
     assert root_run[root_run.index("--exclude") + 1] == "pinned/"
     assert inner_run[inner_run.index("--python") + 1] == str(inner / ".venv")
     assert inner_run[-1] == str(inner)
+    assert inner_run[inner_run.index("--project") + 1] == str(inner), (
+        "a nested project is checked with its own ty settings"
+    )
 
 
 def test_a_manifest_inside_a_skipped_directory_is_not_a_project(tmp_path: Path) -> None:
