@@ -51,6 +51,23 @@ def locked(root: Path) -> dict[str, str]:
     }
 
 
+def holds(root: Path) -> dict[str, str]:
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return {}
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    section = data.get("tool", {}).get("lintmax-py")
+    declared = section.get("holds", {}) if isinstance(section, dict) else {}
+    if not isinstance(declared, dict):
+        msg = "tool.lintmax-py.holds must be a table of package names and non-empty reasons"
+        raise TypeError(msg)
+    for name, reason in declared.items():
+        if not isinstance(reason, str) or not reason.strip():
+            msg = f"tool.lintmax-py.holds.{name} must be a non-empty string explaining the hold and when to revisit it"
+            raise ValueError(msg)
+    return {name.lower(): reason for name, reason in declared.items()}
+
+
 def latest(name: str) -> str | None:
     try:
         with urllib.request.urlopen(
@@ -67,13 +84,20 @@ def latest(name: str) -> str | None:
 def behind(root: Path) -> list[str]:
     if skip():
         return []
+    held = holds(root)
+    names = declared(root)
     pinned = locked(root)
-    stale: list[str] = []
-    for name in declared(root):
+    stale = [f"hold names an undeclared package: {name}" for name in sorted(held.keys() - set(names))]
+    for name in names:
         current = pinned.get(name)
         if current is None:
             continue
         newest = latest(name)
-        if newest is not None and newest != current:
+        if newest is None:
+            continue
+        if name in held:
+            if newest == current:
+                stale.append(f"hold no longer needed: {name} {current}")
+        elif newest != current:
             stale.append(f"{name} {current} -> {newest}")
     return stale
