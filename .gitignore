@@ -4,3 +4,6 @@ __pycache__/
 dist/
 CLAUDE.local.md
 .DS_Store
+.codex-fanout.env
+.codex-lane-common.txt
+briefs_*.md

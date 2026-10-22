@@ -4,11 +4,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import tomllib
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING
-
-import tomllib
 
 if TYPE_CHECKING:
     from pathlib import Path

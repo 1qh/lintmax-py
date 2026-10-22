@@ -1,13 +1,13 @@
 # Copyright (c) lintmax-py contributors. Licensed under the MIT License.
 from __future__ import annotations
 
+import json
 import re
+import tomllib
 from typing import TYPE_CHECKING
 
-import tomllib
-
 from lintmax_py import comments, config, gate
-from lintmax_py.paths import generated, generated_regex, sources
+from lintmax_py.paths import SKIP_DIRS, generated, generated_regex, sources
 from lintmax_py.proc import Result, run
 
 if TYPE_CHECKING:
@@ -42,6 +42,44 @@ def test_generated_files_are_never_rewritten_and_authored_ones_still_are(tmp_pat
     assert comments.offenders(tmp_path) == [str(tmp_path / "src" / "kept.py")]
 
 
+def test_dprint_never_rewrites_generated_files_and_still_formats_authored_ones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generated excludes protect files BELOW a declared glob when the config lives elsewhere.
+
+    The generated file sits below `data/*/*`, rather than matching the glob itself. Running the
+    real formatter through the stage checks that exclusions match with the positional project root;
+    checking only the config or mocking dprint leaves path resolution bugs invisible. An authored
+    file must still be formatted when the config lives outside the project being checked.
+
+    """
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[tool.lintmax-py]\ngenerated = ["data/*/*"]\n', encoding="utf-8")
+    untouched = [root / "data" / "a" / "b" / "x.json"]
+    untouched += [root / name / "nested" / "x.json" for name in sorted(SKIP_DIRS)]
+    original = b'{"value":1}'
+    for path in untouched:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(original)
+    authored = root / "conf.json"
+    authored.write_bytes(original)
+    cfg = tmp_path / "config"
+    cfg.mkdir()
+    monkeypatch.setattr(config, "bump", list)
+    (cfg / "dprint.json").write_text(config.dprint_json(root), encoding="utf-8")
+
+    def real_dprint(cmd: list[str], cwd: str | None = None, **_kwargs: object) -> Result:
+        return run(cmd, cwd=cwd) if cmd[0] == "dprint" else Result(code=0, out="")
+
+    monkeypatch.setattr(gate, "run", real_dprint)
+    assert gate._repo_stages(root, cfg, fix=True) == []
+    for path in untouched:
+        assert path.read_bytes() == original, path
+    assert authored.read_bytes() == b'{ "value": 1 }\n'
+
+
 def test_every_walking_stage_skips_generated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _tree(tmp_path)
     calls: list[list[str]] = []
@@ -58,7 +96,7 @@ def test_every_walking_stage_skips_generated_paths(tmp_path: Path, monkeypatch: 
     assert str(tmp_path / "data") in by_tool["vulture"][by_tool["vulture"].index("--exclude") + 1]
     assert "/out*" in by_tool["typos"]
     assert by_tool["typos"][-1] == "."
-    assert by_tool["dprint"][-1] == str(tmp_path), "dprint resolves its includes against the config's own temp directory"
+    assert by_tool["dprint"] == ["dprint", "check", "--config", str(tmp_path / "dprint.json"), str(tmp_path)]
     assert str(tmp_path / "out_a" / "run.sh") not in by_tool["shellcheck"]
     assert str(tmp_path / "tool.sh") in by_tool["shellcheck"]
     pattern = by_tool["deptry"][by_tool["deptry"].index("--extend-exclude") + 1]
@@ -71,7 +109,17 @@ def test_formatter_and_linter_configs_exclude_generated_paths(tmp_path: Path, mo
     monkeypatch.setattr(config, "bump", list)
     ruff = tomllib.loads(config.ruff_toml([], tmp_path))
     assert str(tmp_path / "out*") in ruff["exclude"]
-    assert str(tmp_path / "data" / "**") in config.dprint_json(tmp_path)
+    dprint = json.loads(config.dprint_json(tmp_path))
+    assert dprint["includes"] == ["**/*"]
+    for pattern in ("**/out*", "**/out*/**", "**/data", "**/data/**"):
+        assert pattern in dprint["excludes"]
+
+
+def test_dprint_does_not_double_prefix_generated_patterns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "bump", list)
+    monkeypatch.setattr(config, "generated", lambda _root: ["**/data"])
+    dprint = json.loads(config.dprint_json(tmp_path))
+    assert dprint["excludes"] == [*config.EXCLUDES, "**/data", "**/data/**"]
 
 
 def test_the_regex_carries_no_construct_deptry_rejects() -> None:

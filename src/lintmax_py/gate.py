@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
-import tomllib
 
 from . import comments, config, rules, staleness, tools
 from .paths import SKIP_DIRS, generated, generated_regex, skipped, sources

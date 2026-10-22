@@ -5,9 +5,8 @@ import ast
 import hashlib
 import json
 import tempfile
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 from . import rules
 from .dprint import bump
@@ -170,6 +169,16 @@ def _absolute(root: Path) -> list[str]:
 
 
 def dprint_json(root: Path) -> str:
+    """Exclude generated paths even though the config lives outside the project.
+
+    dprint resolves config patterns against the config file's directory, which is not the project.
+    A leading `**/` lets each declared pattern match the project paths passed to the formatter.
+
+    Returns:
+        The formatter config with each declared pattern and its contents excluded.
+
+    """
+    declared = [pat if pat.startswith("**/") else f"**/{pat}" for pat in generated(root)]
     return (
         json.dumps(
             {
@@ -178,7 +187,7 @@ def dprint_json(root: Path) -> str:
                 "useTabs": False,
                 "newLineKind": "lf",
                 "includes": ["**/*"],
-                "excludes": [*EXCLUDES, *_absolute(root)],
+                "excludes": [*EXCLUDES, *(glob for pat in declared for glob in (pat, f"{pat}/**"))],
                 "plugins": bump(DPRINT_SEED),
             },
             indent=2,

@@ -1,10 +1,10 @@
 # Copyright (c) lintmax-py contributors. Licensed under the MIT License.
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 from lintmax_py import __version__
 from lintmax_py.dprint import plugin_path

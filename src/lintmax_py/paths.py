@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from typing import TYPE_CHECKING
-
 import tomllib
+from typing import TYPE_CHECKING
 
 from .proc import run
 

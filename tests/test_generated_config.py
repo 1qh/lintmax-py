@@ -1,9 +1,8 @@
 # Copyright (c) lintmax-py contributors. Licensed under the MIT License.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import tomllib
+from typing import TYPE_CHECKING
 
 from lintmax_py import config, rules
 
