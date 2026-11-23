@@ -57,3 +57,12 @@ def test_pytests_module_marker_is_never_dead_code(tmp_path: Path) -> None:
     assert "'pytestmark'" in bare.out
     allowed = run(["vulture", "--ignore-names", ",".join(gate.RUNTIME_NAMES), str(path)])
     assert "'pytestmark'" not in allowed.out
+
+
+def test_a_pytest_fixture_is_never_dead_code(tmp_path: Path) -> None:
+    path = tmp_path / "test_fixture.py"
+    path.write_text("import pytest\n\n\n@pytest.fixture\ndef ready() -> None:\n    pass\n", encoding="utf-8")
+    bare = run(["vulture", str(path)])
+    assert "'ready'" in bare.out
+    allowed = run(["vulture", "--ignore-decorators", ",".join(gate.RUNTIME_DECORATORS), str(path)])
+    assert "'ready'" not in allowed.out

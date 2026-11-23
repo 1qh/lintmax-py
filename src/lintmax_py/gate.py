@@ -71,6 +71,7 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
     python_paths = sources(root)
     fields = config.typed_dict_fields(python_paths)
     allowances["ignore_names"] = sorted({*allowances.get("ignore_names", []), *fields, *RUNTIME_NAMES})
+    allowances["ignore_decorators"] = sorted({*allowances.get("ignore_decorators", []), *RUNTIME_DECORATORS})
     vulture_args = ["vulture", "--exclude", excluded]
     for key, values in sorted(allowances.items()):
         vulture_args += [f"--{key.replace('_', '-')}", ",".join(values)]
@@ -81,6 +82,7 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
 
 
 RUNTIME_NAMES = ("pytestmark",)
+RUNTIME_DECORATORS = ("@pytest.fixture",)
 
 
 def nested_projects(root: Path) -> list[Path]:
