@@ -42,5 +42,5 @@ def test_the_generated_json_ends_in_a_newline(tmp_path: Path, monkeypatch: pytes
 
 def test_a_fix_that_deletes_program_output_is_never_applied(tmp_path: Path) -> None:
     parsed = tomllib.loads(config.ruff_toml([], tmp_path))
-    assert {"T201", "T203", "F401", "PIE794", "RUF027"} <= set(parsed["lint"]["unfixable"])
+    assert {"T201", "T203", "F401", "PIE794", "RUF027", "PLR6104"} <= set(parsed["lint"]["unfixable"])
     assert "T201" not in parsed["lint"]["ignore"]
