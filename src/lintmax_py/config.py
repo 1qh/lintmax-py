@@ -15,13 +15,14 @@ from .paths import GLOB_EXCLUDES, generated
 
 LINE_LENGTH = 123
 
-DELETING_FIXES = ("T201", "T203", "F401", "PIE794")
+DELETING_FIXES = ("T201", "T203", "F401", "PIE794", "RUF027")
 """Rules whose autofix DELETES a statement that can carry behaviour.
 
 T201/T203 delete `print`, which in a command-line program is its output. F401 deletes an import whose
 only purpose may be its side effect (registering plugins, setting process state before another
 import). PIE794 deletes the LATER of 2 class-attribute assignments, while Python keeps the later
-value, so `a = 1; a = 2` silently becomes `a = 1`. The finding stays an error; only the automatic
+value, so `a = 1; a = 2` silently becomes `a = 1`. RUF027 turns a plain string into an f-string wherever its braces name a local variable,
+so git's `HEAD^{tree}` beside a variable called `tree` silently becomes a hash and the command fails. The finding stays an error; only the automatic
 deletion is withheld, so the author decides what the statement was for.
 """
 
