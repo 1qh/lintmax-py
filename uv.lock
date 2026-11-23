@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "lintmax-py"
-version = "0.0.17"
+version = "0.0.18"
 source = { editable = "." }
 dependencies = [
     { name = "packaging" },
