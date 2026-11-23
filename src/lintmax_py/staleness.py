@@ -9,6 +9,9 @@ import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import InvalidVersion, Version
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -20,23 +23,41 @@ def skip() -> bool:
     return bool(os.environ.get("LINTMAX_SKIP_STALENESS"))
 
 
-def declared(root: Path) -> list[str]:
+def specs(root: Path) -> list[str]:
     manifest = root / "pyproject.toml"
     if not manifest.is_file():
         return []
     data = tomllib.loads(manifest.read_text(encoding="utf-8"))
     project = data.get("project", {})
-    specs = list(project.get("dependencies", []))
-    for group in data.get("dependency-groups", {}).values():
-        specs += [g for g in group if isinstance(g, str)]
-    for extra in project.get("optional-dependencies", {}).values():
-        specs += list(extra)
+    lists = [
+        project.get("dependencies", []),
+        *data.get("dependency-groups", {}).values(),
+        *project.get("optional-dependencies", {}).values(),
+        data.get("build-system", {}).get("requires", []),
+    ]
+    return [item for entries in lists for item in entries if isinstance(item, str)]
+
+
+def declared(root: Path) -> list[str]:
     names = []
-    for spec in specs:
+    for spec in specs(root):
         match = NAME_RE.match(spec.strip())
         if match:
-            names.append(match.group(0).lower())
+            names.append(match.group(0).lower().replace("_", "-"))
     return sorted(set(names))
+
+
+def excluded(root: Path, newest: dict[str, str]) -> list[str]:
+    found = []
+    for spec in specs(root):
+        try:
+            requirement = Requirement(spec)
+            version = Version(newest.get(requirement.name.lower().replace("_", "-"), ""))
+        except (InvalidRequirement, InvalidVersion):
+            continue
+        if requirement.specifier and not requirement.specifier.contains(version, prereleases=version.is_prerelease):
+            found.append(f"{spec} excludes {requirement.name} {version}")
+    return found
 
 
 def locked(root: Path) -> dict[str, str]:
@@ -88,16 +109,23 @@ def behind(root: Path) -> list[str]:
     names = declared(root)
     pinned = locked(root)
     stale = [f"hold names an undeclared package: {name}" for name in sorted(held.keys() - set(names))]
+    newest: dict[str, str] = {}
+    for name in names:
+        found = latest(name)
+        if found is not None:
+            newest[name] = found
     for name in names:
         current = pinned.get(name)
-        if current is None:
-            continue
-        newest = latest(name)
-        if newest is None:
+        if current is None or name not in newest:
             continue
         if name in held:
-            if newest == current:
+            if newest[name] == current:
                 stale.append(f"hold no longer needed: {name} {current}")
-        elif newest != current:
-            stale.append(f"{name} {current} -> {newest}")
+        elif newest[name] != current:
+            stale.append(f"{name} {current} -> {newest[name]}")
+    stale += [
+        line
+        for line in excluded(root, {name: version for name, version in newest.items() if name not in held})
+        if line not in stale
+    ]
     return stale

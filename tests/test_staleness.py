@@ -31,7 +31,7 @@ def test_a_held_behind_package_is_silent(tmp_path: Path, monkeypatch: pytest.Mon
 def test_an_unheld_behind_package_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _offline(monkeypatch)
     _project(tmp_path)
-    assert staleness.behind(tmp_path) == ["pillow 12.0 -> 13.0"]
+    assert staleness.behind(tmp_path) == ["pillow 12.0 -> 13.0", "pillow<13 excludes pillow 13.0"]
 
 
 def test_a_held_up_to_date_package_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,6 +47,7 @@ def test_a_hold_on_an_undeclared_package_is_reported(tmp_path: Path, monkeypatch
     assert staleness.behind(tmp_path) == [
         "hold names an undeclared package: gradio",
         "pillow 12.0 -> 13.0",
+        "pillow<13 excludes pillow 13.0",
     ]
 
 
@@ -74,4 +75,26 @@ def test_a_failed_latest_lookup_is_skipped(
     _offline(monkeypatch)
     _project(tmp_path, config)
     monkeypatch.setattr(staleness, "latest", lambda _name: None)
+    assert staleness.behind(tmp_path) == []
+
+
+def test_a_build_backend_capped_below_its_newest_release_is_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _offline(monkeypatch)
+    (tmp_path / "pyproject.toml").write_text('[build-system]\nrequires = ["uv_build>=0.9,<0.10"]\n', encoding="utf-8")
+    assert staleness.behind(tmp_path) == ["uv_build>=0.9,<0.10 excludes uv_build 13.0"]
+
+
+def test_a_cap_is_reported_without_a_lockfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _offline(monkeypatch)
+    (tmp_path / "pyproject.toml").write_text('[project]\ndependencies = ["pillow<13", "numpy>=2"]\n', encoding="utf-8")
+    assert staleness.behind(tmp_path) == ["pillow<13 excludes pillow 13.0"]
+
+
+def test_a_held_cap_is_silent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _offline(monkeypatch)
+    _project(tmp_path, '[tool.lintmax-py.holds]\npillow = "Gradio requires pillow<13; revisit when it supports 13"\n')
+    (tmp_path / "uv.lock").unlink()
     assert staleness.behind(tmp_path) == []
