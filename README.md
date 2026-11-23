@@ -73,10 +73,12 @@ A directory below the root that carries its own `pyproject.toml` is a separate p
 
 ## Earned disables
 
-| Rule          | Reason                                                                                        |
-| ------------- | --------------------------------------------------------------------------------------------- |
-| `D100`-`D107` | operator decision: code is self-explanatory rather than docstring-documented                  |
-| `CPY001`      | stands down unless the project declares its `notice-rgx`; enforced on every file once it does |
+| Rule           | Reason                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `D100`-`D107`  | operator decision: code is self-explanatory rather than docstring-documented                                                                                                                                                                                                         |
+| `CPY001`       | stands down unless the project declares its `notice-rgx`; enforced on every file once it does                                                                                                                                                                                        |
+| `S404`, `S603` | policy, not a defect: `S404` flags importing `subprocess` itself and `S603` flags every call made without a shell, which is the safe form; no code clears either                                                                                                                     |
+| `S314`, `S405` | stand down only when the project's own interpreter carries Expat 2.7.2 or newer, which the Python documentation names as protecting `xml.etree` against billion laughs, quadratic blowup and large tokens, and Expat never reads files or the network by default; enforced otherwise |
 
 ## Configless
 

@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import inspect
+from typing import TYPE_CHECKING
 
-from lintmax_py import tools
+from lintmax_py import rules, tools
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_installing_a_tool_overwrites_whatever_holds_its_name() -> None:
@@ -19,3 +23,12 @@ def test_installing_a_tool_overwrites_whatever_holds_its_name() -> None:
     source = inspect.getsource(tools.ensure)
     install = next(line for line in source.splitlines() if '"install"' in line)
     assert '"--force"' in install, "an install that can be refused is a stage that can silently vanish"
+
+
+def test_the_xml_rules_stand_down_only_for_a_protected_expat(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rules, "expat_version", lambda _python: (2, 7, 4))
+    assert rules.xml_safe("python")
+    monkeypatch.setattr(rules, "expat_version", lambda _python: (2, 6, 0))
+    assert not rules.xml_safe("python")
+    monkeypatch.setattr(rules, "expat_version", lambda _python: None)
+    assert not rules.xml_safe("python")

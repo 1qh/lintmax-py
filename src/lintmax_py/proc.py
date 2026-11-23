@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import] reason: the gate's whole job is driving child linters
+import subprocess
 from dataclasses import dataclass
 
 
@@ -16,7 +16,7 @@ def run(argv: list[str], cwd: str | None = None, timeout: int = 1800, env: dict[
     if shutil.which(argv[0]) is None:
         return Result(code=127, out=f"{argv[0]}: not installed")
     try:
-        done = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        done = subprocess.run(
             argv,
             cwd=cwd,
             env=env,

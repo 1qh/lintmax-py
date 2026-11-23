@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
@@ -131,9 +132,16 @@ def toml_array(key: str, items: list[str]) -> str:
     return f"{key} = [\n{body}]\n"
 
 
+def project_python(root: Path) -> str:
+    venv = root / ".venv" / "bin" / "python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
 def ruff_toml(inventory: list[dict[str, object]], root: Path) -> str:
     select = rules.selection(inventory)
     ignore = rules.ignored()
+    if rules.xml_safe(project_python(root)):
+        ignore = [*ignore, *rules.XML_PARSER]
     allowed = confusables(root)
     allowed_line = toml_array("allowed-confusables", allowed) if allowed else ""
     notice = copyright_notice(root)

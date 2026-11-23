@@ -6,6 +6,9 @@ import json
 from .proc import run
 
 DOCSTRING_REQUIRED = ("D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107")
+SUBPROCESS_POLICY = ("S404", "S603")
+XML_PARSER = ("S314", "S405")
+SAFE_EXPAT = (2, 7, 2)
 
 
 def inventory() -> list[dict[str, object]]:
@@ -44,7 +47,23 @@ def selection(rules: list[dict[str, object]]) -> list[str]:
 
 
 def ignored() -> list[str]:
-    return list(DOCSTRING_REQUIRED)
+    return [*DOCSTRING_REQUIRED, *SUBPROCESS_POLICY]
+
+
+def expat_version(python: str) -> tuple[int, ...] | None:
+    res = run([python, "-c", "import pyexpat; print(pyexpat.EXPAT_VERSION)"])
+    if res.code != 0:
+        return None
+    digits = res.out.strip().removeprefix("expat_").split(".")
+    try:
+        return tuple(int(part) for part in digits)
+    except ValueError:
+        return None
+
+
+def xml_safe(python: str) -> bool:
+    found = expat_version(python)
+    return found is not None and found >= SAFE_EXPAT
 
 
 def summary(rules: list[dict[str, object]]) -> str:
@@ -54,5 +73,6 @@ def summary(rules: list[dict[str, object]]) -> str:
         f"ruff rules: {len(rules)} across {len(linters)} linters "
         f"({len(preview)} preview-gated, all selected)\n"
         f"ty rules: all at error severity\n"
-        f"disabled: {', '.join(ignored())} (docstring-required family)"
+        f"disabled: {', '.join(ignored())} (docstring-required family, subprocess policy); "
+        f"{', '.join(XML_PARSER)} when the project's Expat is at least {'.'.join(map(str, SAFE_EXPAT))}"
     )
