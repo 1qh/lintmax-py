@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 def _record(calls: list[str]) -> Callable[..., Result]:
-    def fake(cmd: list[str], **_kwargs: object) -> Result:
-        calls.append(cmd[0])
+    def fake(argv: list[str], *_args: object, **_kwargs: object) -> Result:
+        calls.append(argv[0])
         return Result(code=0, out="")
 
     return fake
@@ -51,8 +51,8 @@ def test_fix_formats_again_after_the_autofix_that_can_unformat(
     """
     calls: list[list[str]] = []
 
-    def fake(cmd: list[str], **_kwargs: object) -> Result:
-        calls.append(cmd)
+    def fake(argv: list[str], *_args: object, **_kwargs: object) -> Result:
+        calls.append(argv)
         return Result(code=0, out="")
 
     monkeypatch.setattr(gate, "run", fake)

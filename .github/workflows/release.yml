@@ -11,17 +11,18 @@ concurrency:
 jobs:
   publish:
     runs-on: ${{ vars.RUNNER_LABEL }}
+    env:
+      UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v10.4.0
       - name: build
         run: uv build
       - name: publish
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        # publish is optional (operator-supplied token); when absent, skip — never abort the prune steps
+        # A step's `if` cannot read that step's own `env`, so the token is set on the job: set there, it
+        # is visible here and publishes; absent, the step skips and the prune steps still run.
         if: ${{ env.UV_PUBLISH_TOKEN != '' }}
         run: uv publish
       - name: prune to a single present release

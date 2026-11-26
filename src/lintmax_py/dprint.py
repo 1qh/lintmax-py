@@ -7,6 +7,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 HOST = "https://plugins.dprint.dev/"
@@ -15,6 +16,66 @@ TTL_SECONDS = 6 * 60 * 60
 
 
 VERSION_SUFFIX = re.compile(r"[-@]v?\d+\.\d+\.\d+$")
+MARKDOWN_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".mkd", ".mkdn", ".mdwn"})
+FENCE = re.compile(rb"^ {0,3}(`{3,}(?!`)|~{3,}(?!~))(.*)$")
+BACKTICKS = re.compile(rb"`+")
+BACKSLASHES = re.compile(rb"\\+\Z")
+
+
+def _inline_blocks(source: bytes) -> list[bytes]:
+    blocks: list[bytes] = []
+    lines: list[bytes] = []
+    fence = b""
+    for line in source.splitlines(keepends=True):
+        match = FENCE.fullmatch(line.rstrip(b"\r\n"))
+        if fence:
+            if match and match[1].startswith(fence) and not match[2].strip():
+                fence = b""
+            continue
+        if match and (match[1].startswith(b"~") or b"`" not in match[2]):
+            fence = match[1]
+        elif line.strip():
+            lines.append(line)
+            continue
+        if lines:
+            blocks.append(b"".join(lines))
+            lines.clear()
+    if lines:
+        blocks.append(b"".join(lines))
+    return blocks
+
+
+def _inline_spans(source: bytes) -> list[bytes]:
+    spans: list[bytes] = []
+    for block in _inline_blocks(source):
+        end = 0
+        for opening in BACKTICKS.finditer(block):
+            if opening.start() < end:
+                continue
+            escape = BACKSLASHES.search(block, 0, opening.start())
+            width = len(opening[0]) - (len(escape[0]) % 2 if escape else 0)
+            if width == 0:
+                continue
+            for closing in BACKTICKS.finditer(block, opening.end()):
+                if len(closing[0]) == width:
+                    spans.append(block[opening.end() : closing.start()])
+                    end = closing.end()
+                    break
+    return spans
+
+
+def changed_code_span(original: bytes, formatted: bytes) -> str | None:
+    before = _inline_spans(original)
+    after = _inline_spans(formatted)
+    removed = Counter(before) - Counter(after)
+    added = Counter(after) - Counter(before)
+    if removed:
+        span = next(iter(removed)).decode("utf-8", errors="replace")
+        return f"formatting would change inline code span {span!r}"
+    if added:
+        span = next(iter(added)).decode("utf-8", errors="replace")
+        return f"formatting would introduce inline code span {span!r}"
+    return None
 
 
 def plugin_name(file: str) -> str:

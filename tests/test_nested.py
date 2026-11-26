@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 def _record(calls: list[list[str]]) -> Callable[..., Result]:
-    def fake(cmd: list[str], **_kwargs: object) -> Result:
-        calls.append(cmd)
+    def fake(argv: list[str], *_args: object, **_kwargs: object) -> Result:
+        calls.append(argv)
         return Result(code=0, out="")
 
     return fake
@@ -80,8 +80,8 @@ def test_deptry_judges_a_nested_project_from_its_own_manifest(
     inner = _tree(tmp_path)
     calls: list[tuple[list[str], object]] = []
 
-    def fake(cmd: list[str], **kwargs: object) -> Result:
-        calls.append((cmd, kwargs.get("cwd")))
+    def fake(argv: list[str], cwd: str | None = None, *_args: object, **_kwargs: object) -> Result:
+        calls.append((argv, cwd))
         return Result(code=0, out="")
 
     monkeypatch.setattr(gate, "run", fake)

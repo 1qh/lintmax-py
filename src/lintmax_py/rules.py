@@ -11,8 +11,8 @@ XML_PARSER = ("S314", "S405")
 SAFE_EXPAT = (2, 7, 2)
 
 
-def inventory() -> list[dict[str, object]]:
-    res = run(["ruff", "rule", "--all", "--output-format", "json"])
+def inventory(ruff: str) -> list[dict[str, object]]:
+    res = run([ruff, "rule", "--all", "--output-format", "json"])
     if res.code != 0:
         msg = f"ruff rule --all failed: {res.out}"
         raise RuntimeError(msg)

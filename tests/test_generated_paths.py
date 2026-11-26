@@ -8,12 +8,14 @@ from typing import TYPE_CHECKING
 
 from lintmax_py import comments, config, gate
 from lintmax_py.paths import SKIP_DIRS, generated, generated_regex, sources
-from lintmax_py.proc import Result, run
+from lintmax_py.proc import DEFAULT_IO, Result, run
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+    from lintmax_py.proc import RunIO
 
 MANIFEST = '[project]\nname = "x"\n[tool.lintmax-py]\ngenerated = ["out*", "data/"]\n'
 
@@ -65,27 +67,39 @@ def test_dprint_never_rewrites_generated_files_and_still_formats_authored_ones(
         path.write_bytes(original)
     authored = root / "conf.json"
     authored.write_bytes(original)
+    markdown = root / "note.md"
+    markdown.write_bytes(b"# Note\n\nText with `code`.\n\n\n")
     cfg = tmp_path / "config"
     cfg.mkdir()
     monkeypatch.setattr(config, "bump", list)
     (cfg / "dprint.json").write_text(config.dprint_json(root), encoding="utf-8")
 
-    def real_dprint(cmd: list[str], cwd: str | None = None, **_kwargs: object) -> Result:
-        return run(cmd, cwd=cwd) if cmd[0] == "dprint" else Result(code=0, out="")
+    def real_dprint(
+        argv: list[str],
+        cwd: str | None = None,
+        timeout: int = 1800,
+        env: dict[str, str] | None = None,
+        *,
+        io: RunIO = DEFAULT_IO,
+    ) -> Result:
+        if argv[0] == "dprint":
+            return run(argv, cwd=cwd, timeout=timeout, env=env, io=io)
+        return Result(code=0, out="")
 
     monkeypatch.setattr(gate, "run", real_dprint)
     assert gate._repo_stages(root, cfg, fix=True) == []
     for path in untouched:
         assert path.read_bytes() == original, path
     assert authored.read_bytes() == b'{ "value": 1 }\n'
+    assert markdown.read_bytes() == b"# Note\n\nText with `code`.\n"
 
 
 def test_every_walking_stage_skips_generated_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _tree(tmp_path)
     calls: list[list[str]] = []
 
-    def fake(cmd: list[str], **_kwargs: object) -> Result:
-        calls.append(cmd)
+    def fake(argv: list[str], *_args: object, **_kwargs: object) -> Result:
+        calls.append(argv)
         return Result(code=0, out="")
 
     monkeypatch.setattr(gate, "run", fake)

@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from . import comments, config, rules, staleness, tools
+from . import comments, config, dprint, rules, staleness, tools
 from .paths import SKIP_DIRS, generated, generated_regex, skipped, sources
-from .proc import Result, have, run
+from .proc import DEFAULT_IO, Result, RunIO, run
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 DEV_EXTRA_NAMES = frozenset({"dev", "development", "docs", "lint", "test", "testing", "tests", "typing"})
 """Extras that name a development role rather than a runtime feature.
@@ -22,9 +27,7 @@ conventional development EXTRA names are forwarded, for projects that predate th
 
 SHELLCHECK_FLAGS = ("--enable=all", "--severity=style", "--external-sources")
 SHFMT_FLAGS = ("-s", "-ci", "-bn", "-sr", "-i", "2")
-
-if TYPE_CHECKING:
-    from pathlib import Path
+SHELL_SHEBANG = re.compile(rb"^#![ \t]*(?:\S*/)?(?:env[ \t]+(?:-S[ \t]+)?(?:\S*/)?)?(sh|bash|zsh)(?=\s|$)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,28 +43,29 @@ def _stage(name: str, res: Result) -> list[Finding]:
     return [Finding(stage=name, detail=detail)]
 
 
-def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
+def _python_stages(root: Path, cfg: Path, *, fix: bool, execute: Callable[..., Result] | None = None) -> list[Finding]:
+    execute = execute or run
     found: list[Finding] = []
     ruff_common = ["--config", str(cfg / "ruff.toml"), "--no-cache"]
     if fix:
-        found += _stage("ruff format", run(["ruff", "format", *ruff_common, str(root)]))
+        found += _stage("ruff format", execute(["ruff", "format", *ruff_common, str(root)]))
         found += _stage(
             "ruff check",
-            run(["ruff", "check", "--fix", "--unsafe-fixes", *ruff_common, str(root)]),
+            execute(["ruff", "check", "--fix", "--unsafe-fixes", *ruff_common, str(root)]),
         )
-        found += _stage("ruff format", run(["ruff", "format", *ruff_common, str(root)]))
+        found += _stage("ruff format", execute(["ruff", "format", *ruff_common, str(root)]))
     else:
-        found += _stage("ruff format", run(["ruff", "format", "--check", *ruff_common, str(root)]))
-        found += _stage("ruff check", run(["ruff", "check", *ruff_common, str(root)]))
+        found += _stage("ruff format", execute(["ruff", "format", "--check", *ruff_common, str(root)]))
+        found += _stage("ruff check", execute(["ruff", "check", *ruff_common, str(root)]))
     nested = nested_projects(root)
     excludes = [arg for sub in nested for arg in ("--exclude", f"{sub.relative_to(root).as_posix()}/")]
     excludes += [arg for pat in generated(root) for arg in ("--exclude", f"{pat}/", "--exclude", pat)]
-    found += _stage("ty", run(["ty", "check", "--error", "all", *_environment(root), *excludes, str(root)]))
+    found += _stage("ty", execute(["ty", "check", "--error", "all", *_environment(root), *excludes, str(root)]))
     for sub in nested:
         label = f"ty {sub.relative_to(root).as_posix()}"
         found += _stage(
             label,
-            run(["ty", "check", "--error", "all", "--project", str(sub), *_environment(sub), str(sub)]),
+            execute(["ty", "check", "--error", "all", "--project", str(sub), *_environment(sub), str(sub)]),
         )
     excluded = ",".join([
         *(f"*/{name}/*" for name in sorted(SKIP_DIRS)),
@@ -77,7 +81,7 @@ def _python_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
         vulture_args += [f"--{key.replace('_', '-')}", ",".join(values)]
     python_files = [str(p) for p in python_paths]
     if python_files:
-        found += _stage("vulture", run([*vulture_args, *python_files]))
+        found += _stage("vulture", execute([*vulture_args, *python_files]))
     return found
 
 
@@ -202,33 +206,140 @@ def _deptry_env(root: Path) -> dict[str, str] | None:
     return env
 
 
-def _repo_stages(root: Path, cfg: Path, *, fix: bool) -> list[Finding]:
+def _dprint_stage(root: Path, cfg: Path, *, fix: bool, execute: Callable[..., Result] | None = None) -> list[Finding]:
+    execute = execute or run
+    cwd = str(root)
+    options = ["--config", str(cfg / "dprint.json")]
+    paths = execute(["dprint", "file-paths", *options, cwd], cwd=cwd, io=RunIO(raw_output=True))
+    if paths.code:
+        return _stage("dprint", paths)
+
+    markdown: list[Path] = []
+    other: list[str] = []
+    for name in paths.out.splitlines():
+        if not name:
+            continue
+        path = root / name
+        if path.suffix.lower() in dprint.MARKDOWN_SUFFIXES:
+            markdown.append(path)
+        else:
+            other.append(name)
+
+    command = ["dprint", "fmt" if fix else "check", *options]
+    if not markdown:
+        return _stage("dprint", execute([*command, cwd], cwd=cwd))
+
     found: list[Finding] = []
-    dprint_args = ["dprint", "fmt" if fix else "check", "--config", str(cfg / "dprint.json"), str(root)]
-    found += _stage("dprint", run(dprint_args, cwd=str(root)))
+    if other:
+        file_list = "\n".join(other).encode("utf-8", "surrogateescape")
+        found += _stage(
+            "dprint",
+            execute([*command, "--stdin-files"], cwd=cwd, io=RunIO(input_bytes=file_list)),
+        )
+    for path in markdown:
+        found += _format_markdown(path, cwd, options, execute, fix=fix)
+    return found
+
+
+def _format_markdown(
+    path: Path,
+    cwd: str,
+    options: list[str],
+    execute: Callable[..., Result],
+    *,
+    fix: bool,
+) -> list[Finding]:
+    original = path.read_bytes()
+    result = execute(
+        ["dprint", "fmt", *options, "--stdin", str(path)],
+        cwd=cwd,
+        io=RunIO(input_bytes=original, raw_output=True),
+    )
+    if result.code:
+        return _stage("dprint", Result(code=result.code, out=f"{path}: {result.out}"))
+    formatted = result.out.encode("utf-8", errors="surrogateescape")
+    if formatted == original:
+        return []
+    changed = dprint.changed_code_span(original, formatted)
+    if changed is not None:
+        return [Finding(stage="dprint", detail=f"{path}: {changed}")]
+    if fix:
+        path.write_bytes(formatted)
+        return []
+    return [Finding(stage="dprint", detail=f"{path}: needs formatting (run fix)")]
+
+
+def _shell_format(scripts: list[Path], *, fix: bool, execute: Callable[..., Result] | None = None) -> list[Finding]:
+    execute = execute or run
+    originals = {path: path.read_bytes() for path in scripts}
+    found: list[Finding] = []
+    if fix:
+        found += _stage("shfmt", execute(["shfmt", "-w", *SHFMT_FLAGS, *(str(path) for path in scripts)]))
+    for path, original in originals.items():
+        if fix:
+            formatted = path.read_bytes()
+        else:
+            preview = execute(["shfmt", *SHFMT_FLAGS, str(path)], io=RunIO(raw_output=True))
+            if preview.code:
+                found += _stage("shfmt", preview)
+                continue
+            formatted = preview.out.encode("utf-8", errors="surrogateescape")
+        if formatted == original:
+            continue
+        shebang = SHELL_SHEBANG.match(original)
+        shell = shebang[1].decode("ascii") if shebang else "sh"
+        parsed = run([shell, "-n"], io=RunIO(input_bytes=formatted))
+        if parsed.code:
+            if fix:
+                path.write_bytes(original)
+            found.append(Finding(stage="shfmt", detail=f"{path}: {parsed.out or f'{shell} exited {parsed.code}'}"))
+        elif not fix:
+            found.append(Finding(stage="shfmt", detail=f"{path}: needs formatting (run fix)"))
+    return found
+
+
+def _repo_stages(root: Path, cfg: Path, *, fix: bool, execute: Callable[..., Result] | None = None) -> list[Finding]:
+    execute = execute or run
+    found = _dprint_stage(root, cfg, fix=fix, execute=execute)
     declared = generated(root)
     typos_excludes = [arg for pat in declared for arg in ("--exclude", f"/{pat}")]
     typos_args = ["typos", "--config", str(cfg / "typos.toml"), *typos_excludes, "."]
-    found += _stage("typos", run(typos_args, cwd=str(root)))
-    scripts = [str(p) for p in sources(root, "*.sh")]
+    found += _stage("typos", execute(typos_args, cwd=str(root)))
+    scripts = [path for path in sources(root, "*.sh") if path.is_file()]
     if scripts:
-        shfmt = ["shfmt", "-w" if fix else "-d", *SHFMT_FLAGS, *scripts]
-        found += _stage("shfmt", run(shfmt))
-        found += _stage("shellcheck", run(["shellcheck", *SHELLCHECK_FLAGS, *scripts]))
+        found += _shell_format(scripts, fix=fix, execute=execute)
+        found += _stage("shellcheck", execute(["shellcheck", *SHELLCHECK_FLAGS, *(str(path) for path in scripts)]))
     for sub in nested_projects(root):
         label = f"deptry {sub.relative_to(root).as_posix()}"
-        found += _stage(label, run(["deptry", *_deptry_args(sub)], cwd=str(sub), env=_deptry_env(sub)))
+        found += _stage(label, execute(["deptry", *_deptry_args(sub)], cwd=str(sub), env=_deptry_env(sub)))
     if (root / "pyproject.toml").is_file():
         deptry = ["deptry", *_deptry_args(root), *_nested_excludes(root)]
-        found += _stage("deptry", run(deptry, cwd=str(root), env=_deptry_env(root)))
-        found += _stage("pip-audit", run(["pip-audit", "--progress-spinner", "off"], cwd=str(root)))
+        found += _stage("deptry", execute(deptry, cwd=str(root), env=_deptry_env(root)))
+        found += _stage("pip-audit", execute(["pip-audit", "--progress-spinner", "off"], cwd=str(root)))
     return found
 
 
 def run_gate(root: Path, *, fix: bool) -> list[Finding]:
-    missing = tools.ensure()
+    resolved, missing = tools.ensure()
     findings = [Finding(stage="toolchain", detail=m) for m in missing]
-    inventory = rules.inventory()
+    ruff = resolved.get("ruff")
+    if ruff is None:
+        return findings
+
+    def execute(
+        argv: list[str],
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        io: RunIO = DEFAULT_IO,
+    ) -> Result:
+        name, *args = argv
+        executable = resolved.get(name)
+        if executable is None:
+            return Result(code=127, out=f"{name}: not installed")
+        return run([executable, *args], cwd=cwd, env=env, io=io)
+
+    inventory = rules.inventory(ruff)
     cfg, _digest = config.materialize(inventory, root)
 
     if fix:
@@ -238,14 +349,20 @@ def run_gate(root: Path, *, fix: bool) -> list[Finding]:
             Finding(stage="comments", detail=f"{path}: strippable comment (run fix)") for path in comments.offenders(root)
         ]
 
-    findings += _python_stages(root, cfg, fix=fix)
-    findings += _repo_stages(root, cfg, fix=fix)
+    findings += _python_stages(root, cfg, fix=fix, execute=execute)
+    findings += _repo_stages(root, cfg, fix=fix, execute=execute)
     findings += [Finding(stage="staleness", detail=d) for d in staleness.behind(root)]
 
     return findings
 
 
 def rules_text() -> str:
-    inventory = rules.inventory()
-    extra = [t for t in tools.executables() if have(t)]
+    uv_bin = tools.uv_bin_dir()
+    active = {name: tools.resolve(name, uv_bin) for name in tools.executables()}
+    ruff = active.get("ruff")
+    if ruff is None:
+        msg = "ruff rule --all failed: ruff: not installed"
+        raise RuntimeError(msg)
+    inventory = rules.inventory(ruff)
+    extra = [name for name, path in active.items() if path is not None]
     return rules.summary(inventory) + "\nactive tools: " + ", ".join(extra)
